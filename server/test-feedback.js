@@ -1,17 +1,21 @@
 const mongoose = require('mongoose');
 const Feedback = require('./models/Feedback');
 const User = require('./models/User');
+require('dotenv').config();
+
+// Use the Atlas URL from environment variables
+const MONGODB_URI = process.env.MONGODB_URI;
 
 async function testFeedbackAPI() {
   try {
-    console.log('Testing Feedback API...');
+    console.log('Testing Feedback API with MongoDB Atlas...');
     
     // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/garagesale', {
+    await mongoose.connect(MONGODB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    console.log('Connected to MongoDB successfully');
+    console.log('Connected to MongoDB Atlas successfully');
     
     // List all collections
     const collections = await mongoose.connection.db.listCollections().toArray();
@@ -53,7 +57,7 @@ async function testFeedbackAPI() {
   } finally {
     // Disconnect from MongoDB
     await mongoose.disconnect();
-    console.log('Disconnected from MongoDB');
+    console.log('Disconnected from MongoDB Atlas');
   }
 }
 

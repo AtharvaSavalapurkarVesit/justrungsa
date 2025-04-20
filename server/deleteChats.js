@@ -1,12 +1,17 @@
 const mongoose = require('mongoose');
 const Chat = require('./models/Chat');
+require('dotenv').config();
 
-mongoose.connect('mongodb://localhost:27017/garage_sale', {
+// Use the Atlas URL from environment variables
+const MONGODB_URI = process.env.MONGODB_URI;
+console.log('Connecting to MongoDB Atlas for chat deletion');
+
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
 .then(async () => {
-  console.log('Connected to MongoDB');
+  console.log('Connected to MongoDB Atlas');
   try {
     const result = await Chat.deleteMany({});
     console.log(`Deleted ${result.deletedCount} chats`);

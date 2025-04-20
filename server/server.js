@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -7,9 +8,20 @@ const fs = require('fs');
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*', // Allow all origins in development
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Logging middleware for all requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
 
 // Create uploads directories if they don't exist - with improved error handling
 const uploadDirs = ['uploads', 'uploads/profile-pics', 'uploads/items'];
@@ -55,14 +67,45 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/garagesale', {
+const MONGODB_URI = process.env.MONGODB_URI; // Only use Atlas URL from env var, no fallback
+console.log('Attempting to connect to MongoDB Atlas exclusively at:', MONGODB_URI);
+
+// Add a timeout to catch stuck connections
+let connectionTimeout = setTimeout(() => {
+  console.error('MongoDB connection timeout - connection attempt did not complete within 10 seconds');
+}, 10000);
+
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000, // 5 second timeout
+  connectTimeoutMS: 5000 // Connection timeout
 })
-.then(() => console.log('Connected to MongoDB successfully'))
+.then(() => {
+  clearTimeout(connectionTimeout);
+  console.log('Connected to MongoDB Atlas successfully');
+})
 .catch(err => {
+  clearTimeout(connectionTimeout);
+  console.error('MongoDB connection error details:', {
+    message: err.message,
+    code: err.code,
+    name: err.name
+  });
   console.error('MongoDB connection error:', err);
+  console.log('CRITICAL ERROR: Cannot connect to MongoDB Atlas. Application may not function correctly.');
+  // Don't continue without the database connection
   process.exit(1);
+});
+
+// Set up an event listener for failed connections
+mongoose.connection.on('error', (err) => {
+  console.error('Mongoose connection error:', err);
+});
+
+// Listen for disconnect events
+mongoose.connection.on('disconnected', () => {
+  console.log('Mongoose disconnected');
 });
 
 // Create public directory if it doesn't exist
@@ -80,9 +123,37 @@ app.use('/api/forum', require('./routes/forum.js'));
 app.use('/api/feedback', require('./routes/feedback.js'));
 app.use('/api/admin', require('./routes/admin.js'));
 
+// Special route for testing login
+app.post('/api/auth/login-test', (req, res) => {
+  console.log('Login test route hit', req.body);
+  res.status(200).json({ 
+    message: 'Login test successful',
+    body: req.body 
+  });
+});
+
+// Debug routes with more detailed route definition
+app.get('/test', (req, res) => {
+  console.log('Test endpoint hit');
+  res.status(200).json({ message: 'Server is running correctly' });
+});
+
+app.get('/api/test', (req, res) => {
+  console.log('API test endpoint hit');
+  res.status(200).json({ message: 'API routes are working' });
+});
+
+app.post('/api/test-post', (req, res) => {
+  console.log('POST test endpoint hit', req.body);
+  res.status(200).json({ 
+    message: 'POST request received', 
+    body: req.body 
+  });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Error in middleware:', err.stack);
   res.status(500).json({ 
     message: 'Something broke!',
     error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
@@ -91,7 +162,12 @@ app.use((err, req, res, next) => {
 
 // Handle 404 routes
 app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
+  console.log(`404 for ${req.method} ${req.url}`);
+  res.status(404).json({ 
+    message: 'Route not found',
+    path: req.url,
+    method: req.method
+  });
 });
 
 // Serve static assets in production
@@ -102,29 +178,34 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-const PORT = process.env.PORT || 5002;
-const MAX_PORT_ATTEMPTS = 10;
+// Start server with fixed port
+const PORT = 5002; // Always use 5002
+console.log('Attempting to start server on port', PORT);
 
-// Function to try starting the server on different ports
-const startServer = (port, attempt = 0) => {
-  const server = app.listen(port)
-    .on('error', (err) => {
-      if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
-        console.warn(`Port ${port} is in use, trying port ${port + 1}...`);
-        server.close();
-        startServer(port + 1, attempt + 1);
+// Function for starting server
+const startServer = () => {
+  try {
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server is running on port ${PORT}`);
+      console.log(`Server accessible at http://localhost:${PORT}`);
+    });
+    
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`Critical error: Port ${PORT} is already in use. Please close any other applications using this port and restart the server.`);
+        process.exit(1);
       } else {
-        console.error('Error starting server:', err);
+        console.error('Server error:', err);
         process.exit(1);
       }
-    })
-    .on('listening', () => {
-      const actualPort = server.address().port;
-      console.log(`Server is running on port ${actualPort}`);
     });
-
-  return server;
+    
+    return server;
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
 };
 
-// Start the server with retry mechanism
-startServer(PORT); 
+// Start the server
+startServer(); 
